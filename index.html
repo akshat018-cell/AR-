@@ -4,7 +4,8 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>WebAR Wedding Invitation</title>
-    <!-- A-Frame v1.5.0 -->
+
+    <!-- A‑Frame v1.5.0 -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <!-- MindAR v1.2.5 -->
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -15,7 +16,7 @@
             overflow: hidden;
         }
 
-        /* "Tap to Start" Overlay for iOS Audio Fix */
+        /* “Tap to Start” overlay – iOS audio fix */
         #start-overlay {
             position: fixed;
             top: 0;
@@ -28,7 +29,7 @@
             align-items: center;
             z-index: 9999;
             cursor: pointer;
-            color: white;
+            color: #fff;
             font-family: sans-serif;
             text-align: center;
             flex-direction: column;
@@ -48,130 +49,143 @@
             display: none !important;
         }
     </style>
+
+    <!-- --------------------------------------------------------------
+       CHROMA‑KEY SHADER
+       -------------------------------------------------------------- -->
+    <script>
+        // Register a custom shader that discards pixels close to the key colour.
+        AFRAME.registerShader('chromakey', {
+            schema: {
+                src: { type: 'map' },                     // video texture
+                keyColor: { type: 'color', default: '#00ff00' }, // bright green
+                threshold: { type: 'number', default: 0.25 }      // how tolerant we are
+            },
+
+            init: function (data) {
+                // Create a video texture from the supplied src.
+                const videoEl = document.querySelector(data.src);
+                const videoTex = new THREE.VideoTexture(videoEl);
+                videoTex.minFilter = THREE.LinearFilter;
+                videoTex.magFilter = THREE.LinearFilter;
+                videoTex.format = THREE.RGBFormat;
+
+                // Build the material.
+                this.material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        map: { value: videoTex },
+                        keyColor: { value: new THREE.Color(data.keyColor) },
+                        threshold: { value: data.threshold }
+                    },
+                    vertexShader: `
+            varying vec2 vUV;
+            void main() {
+              vUV = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+            }
+          `,
+                    fragmentShader: `
+            uniform sampler2D map;
+            uniform vec3 keyColor;
+            uniform float threshold;
+            varying vec2 vUV;
+            void main() {
+              vec4 tex = texture2D(map, vUV);
+              float dist = distance(tex.rgb, keyColor);
+              if (dist < threshold) discard;          // make green transparent
+              gl_FragColor = tex;
+            }
+          `,
+                    transparent: true,
+                    side: THREE.DoubleSide
+                });
+            },
+
+            // Update uniforms when component data changes.
+            update: function (data) {
+                this.material.uniforms.keyColor.value.set(data.keyColor);
+                this.material.uniforms.threshold.value = data.threshold;
+            }
+        });
+    </script>
 </head>
 
 <body>
-    <!-- Overlay UI -->
+    <!-- --------------------------------------------------------------
+       OVERLAY (iOS audio unlock)
+       -------------------------------------------------------------- -->
     <div id="start-overlay">
         <h1>Tap to Start AR</h1>
-        <p>Enable camera & audio access</p>
+        <p>Enable camera &amp; audio access</p>
     </div>
 
-    <!-- AR Scene -->
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta: 0.001;" color-space="sRGB"
-        renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false"
-        device-orientation-permission-ui="enabled: false">
+    <!-- --------------------------------------------------------------
+       AR SCENE
+       -------------------------------------------------------------- -->
+    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta:0.001;" color-space="sRGB"
+        renderer="colorManagement:true, physicallyCorrectLights" vr-mode-ui="enabled:false"
+        device-orientation-permission-ui="enabled:false">
 
+        <!-- Video asset – loaded once, then used as a texture -->
         <a-assets>
             <video id="invitation-video" src="./video.mp4" preload="metadata" loop crossorigin="anonymous" playsinline
-                webkit-playsinline muted>
-            </video>
+                webkit-playsinline muted></video>
         </a-assets>
 
-        <!-- Camera -->
-        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+        <!-- Camera (no look‑controls) -->
+        <a-camera position="0 0 0" look-controls="enabled:false"></a-camera>
 
-        <!-- Image Target (Index 0) -->
-        <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
-            <!-- Video Plane with Chroma Key Component -->
-            <a-plane id="video-plane" position="0 0 0" height="1.777" width="1" rotation="0 0 0"
-                material="src: #invitation-video; shader: flat; transparent: true; side: double;"
-                chromakey="color: 0.0 1.0 0.0; threshold: 0.4;">
+        <!-- Image target (index 0) -->
+        <a-entity id="target-entity" mindar-image-target="targetIndex:0">
+            <!-- Plane that shows the video with chroma‑key removal -->
+            <a-plane position="0 0 0" height="1.777" width="1" rotation="0 0 0" material="shader: chromakey;
+                  src: #invitation-video;
+                  keyColor: #00ff00;
+                  threshold: 0.25;
+                  transparent: true;
+                  side: double;">
             </a-plane>
         </a-entity>
     </a-scene>
 
+    <!-- --------------------------------------------------------------
+       SCRIPT – iOS audio unlock + AR logic
+       -------------------------------------------------------------- -->
     <script>
-        // Register Chroma Key Component (safer than shader)
-        AFRAME.registerComponent('chromakey', {
-            schema: {
-                color: { type: 'vec3', default: { x: 0.0, y: 1.0, z: 0.0 } },
-                threshold: { type: 'number', default: 0.4 }
-            },
-
-            init: function () {
-                const mesh = this.el.getObject3D('mesh');
-                const video = document.querySelector('#invitation-video');
-
-                this.el.addEventListener('materialtextureloaded', () => {
-                    this.applyChromaKey();
-                });
-            },
-
-            applyChromaKey: function () {
-                const mesh = this.el.getObject3D('mesh');
-                if (!mesh) return;
-
-                const material = mesh.material;
-                if (!material) return;
-
-                // Store original onBeforeCompile
-                material.onBeforeCompile = (shader) => {
-                    shader.uniforms.keyColor = {
-                        value: new THREE.Vector3(
-                            this.data.color.x,
-                            this.data.color.y,
-                            this.data.color.z
-                        )
-                    };
-                    shader.uniforms.threshold = { value: this.data.threshold };
-
-                    // Modify fragment shader
-                    shader.fragmentShader = shader.fragmentShader.replace(
-                        '#include <map_fragment>',
-                        `
-                        #include <map_fragment>
-                        uniform vec3 keyColor;
-                        uniform float threshold;
-                        
-                        float diff = distance(diffuseColor.rgb, keyColor);
-                        if (diff < threshold) {
-                            discard;
-                        }
-                        `
-                    );
-                };
-
-                material.transparent = true;
-                material.needsUpdate = true;
-            }
-        });
-
-        document.addEventListener("DOMContentLoaded", function () {
+        document.addEventListener('DOMContentLoaded', () => {
             const overlay = document.getElementById('start-overlay');
             const video = document.getElementById('invitation-video');
-            const targetEntity = document.getElementById('target-entity');
+            const target = document.getElementById('target-entity');
 
-            let isAudioUnlocked = false;
+            let audioUnlocked = false;
 
-            // --- iOS Audio Fix & Start Logic ---
-            overlay.addEventListener('click', function () {
+            // ---- iOS audio fix -------------------------------------------------
+            overlay.addEventListener('click', () => {
                 overlay.classList.add('hidden');
 
+                // Play‑pause trick to unlock the audio context
                 video.play().then(() => {
                     video.pause();
                     video.currentTime = 0;
-                    video.muted = false;
-                    isAudioUnlocked = true;
-                    console.log("Audio unlocked successfully");
-                }).catch((error) => {
-                    console.warn("Video playback failed on start:", error);
-                });
+                    video.muted = false;      // now we can play with sound
+                    audioUnlocked = true;
+                    console.log('Audio unlocked');
+                }).catch(err => console.warn('Audio unlock failed:', err));
             });
 
-            // --- AR Logic: Target Found/Lost ---
-            targetEntity.addEventListener("targetFound", event => {
-                console.log("Target Found - Playing video");
-                if (isAudioUnlocked) {
-                    video.play().catch(err => console.error("Play error:", err));
-                } else {
+            // ---- AR events -----------------------------------------------------
+            target.addEventListener('targetFound', () => {
+                console.log('Target found');
+                if (audioUnlocked) video.play();
+                else {
+                    // fallback – play muted (so the user still sees the hologram)
                     video.muted = true;
-                    video.play().catch(err => console.error("Play error:", err));
+                    video.play();
                 }
             });
 
-            targetEntity.addEventListener("targetLost", event => {
-                console.log("Target Lost - Pausing video");
+            target.addEventListener('targetLost', () => {
+                console.log('Target lost');
                 video.pause();
             });
         });
