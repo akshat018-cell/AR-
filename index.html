@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebAR Wedding Invitation</title>
+    <!-- A-Frame v1.5.0 -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- MindAR v1.2.5 -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* "Tap to Start" Overlay for iOS Audio Fix */
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            cursor: pointer;
+            color: white;
+            font-family: sans-serif;
+            text-align: center;
+            flex-direction: column;
+        }
+
+        #start-overlay h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        #start-overlay p {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Overlay UI -->
+    <div id="start-overlay">
+        <h1>Tap to Start AR</h1>
+        <p>Enable camera & audio access</p>
+    </div>
+
+    <!-- AR Scene -->
+    <!-- 
+      mindar-image: imageTargetSrc points to the compiled target file.
+      color-space and renderer settings optimize for AR.
+      vr-mode-ui="enabled: false" hides the VR button.
+      device-orientation-permission-ui="enabled: false" hides default A-Frame permission UI.
+    -->
+    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta: 0.001;" color-space="sRGB"
+        renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false">
+
+        <a-assets>
+            <!-- 
+          Video Asset 
+          - loop="true": Video loops automatically.
+          - crossorigin="anonymous": Good practice for video textures.
+          - playsinline, webkit-playsinline: Required for iOS inline playback.
+          - muted: Helps with initial loading policies (we unmute on interaction).
+        -->
+            <video id="invitation-video" src="./video.mp4" preload="auto" loop="true" crossorigin="anonymous"
+                playsinline webkit-playsinline muted>
+            </video>
+        </a-assets>
+
+        <!-- Camera -->
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+        <!-- 
+        Image Target (Index 0) 
+        - This matches the first image in your targets.mind file.
+      -->
+        <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
+            <!-- 
+          Video Plane
+          - src: Links to the video asset.
+          - width/height: 1 (Matches the 1:1 aspect ratio of the physical card).
+          - position: 0 0 0 (Centered on the target).
+          - rotation: 0 0 0 (Flat on the target).
+        -->
+            <a-plane src="#invitation-video" position="0 0 0" height="1.777" width="1" rotation="0 0 0">
+            </a-plane>
+        </a-entity>
+    </a-scene>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const overlay = document.getElementById('start-overlay');
+            const video = document.getElementById('invitation-video');
+            const targetEntity = document.getElementById('target-entity');
+
+            let isAudioUnlocked = false;
+
+            // --- iOS Audio Fix & Start Logic ---
+            // We wait for a user interaction (click/tap) to unlock the audio context.
+            overlay.addEventListener('click', function () {
+                // 1. Hide the overlay
+                overlay.classList.add('hidden');
+
+                // 2. Unlock Audio: Play and immediately pause
+                // This tells the browser "the user interacted, allow this video to play with sound later"
+                video.play().then(() => {
+                    video.pause();
+                    video.currentTime = 0; // Reset to start
+                    video.muted = false;   // Unmute now that we have interaction
+                    isAudioUnlocked = true;
+                }).catch((error) => {
+                    console.warn("Video playback failed on start:", error);
+                });
+            });
+
+            // --- AR Logic: Target Found/Lost ---
+
+            targetEntity.addEventListener("targetFound", event => {
+                console.log("Target Found");
+                if (isAudioUnlocked) {
+                    video.play();
+                }
+            });
+
+            targetEntity.addEventListener("targetLost", event => {
+                console.log("Target Lost");
+                if (isAudioUnlocked) {
+                    video.pause();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
