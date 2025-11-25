@@ -47,10 +47,26 @@
         .hidden {
             display: none !important;
         }
+
+        /* Debug info */
+        #debug {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            font-size: 12px;
+            z-index: 1000;
+            max-width: 300px;
+        }
     </style>
 </head>
 
 <body>
+    <!-- Debug Info -->
+    <div id="debug">Initializing...</div>
+
     <!-- Overlay UI -->
     <div id="start-overlay">
         <h1>Tap to Start AR</h1>
@@ -63,8 +79,8 @@
         device-orientation-permission-ui="enabled: false">
 
         <a-assets>
-            <video id="invitation-video" src="./video.mp4" preload="auto" loop="true" crossorigin="anonymous"
-                playsinline webkit-playsinline muted>
+            <video id="invitation-video" src="./video.mp4" preload="auto" loop crossorigin="anonymous" playsinline
+                webkit-playsinline muted>
             </video>
         </a-assets>
 
@@ -73,47 +89,84 @@
 
         <!-- Image Target (Index 0) -->
         <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
-            <!-- Video Plane - STANDARD (No Chroma Key for now) -->
-            <a-plane src="#invitation-video" position="0 0 0" height="1.777" width="1" rotation="0 0 0"
-                material="transparent: false; side: double;">
-            </a-plane>
+            <!-- Video Plane -->
+            <a-video id="video-plane" src="#invitation-video" position="0 0 0" height="1.777" width="1"
+                rotation="0 0 0">
+            </a-video>
         </a-entity>
     </a-scene>
 
     <script>
+        const debug = document.getElementById('debug');
+
+        function log(msg) {
+            console.log(msg);
+            debug.innerHTML += '<br>' + msg;
+        }
+
         document.addEventListener("DOMContentLoaded", function () {
             const overlay = document.getElementById('start-overlay');
             const video = document.getElementById('invitation-video');
             const targetEntity = document.getElementById('target-entity');
+            const scene = document.querySelector('a-scene');
 
             let isAudioUnlocked = false;
+            let sceneLoaded = false;
+
+            log('DOM Loaded');
+
+            // Wait for scene to load
+            scene.addEventListener('loaded', function () {
+                sceneLoaded = true;
+                log('Scene loaded');
+            });
+
+            // Check video loading
+            video.addEventListener('loadeddata', function () {
+                log('Video loaded: ' + video.duration + 's');
+            });
+
+            video.addEventListener('error', function (e) {
+                log('Video error: ' + e.message);
+            });
 
             // --- iOS Audio Fix & Start Logic ---
             overlay.addEventListener('click', function () {
+                log('Overlay clicked');
                 overlay.classList.add('hidden');
 
                 video.play().then(() => {
+                    log('Video play initiated');
                     video.pause();
                     video.currentTime = 0;
                     video.muted = false;
                     isAudioUnlocked = true;
+                    log('Audio unlocked');
                 }).catch((error) => {
+                    log('Video play error: ' + error.message);
                     console.warn("Video playback failed on start:", error);
                 });
             });
 
             // --- AR Logic: Target Found/Lost ---
             targetEntity.addEventListener("targetFound", event => {
-                console.log("Target Found");
+                log('Target FOUND');
                 if (isAudioUnlocked) {
-                    video.play();
+                    video.play().then(() => {
+                        log('Video playing');
+                    }).catch(err => {
+                        log('Play error: ' + err.message);
+                    });
+                } else {
+                    log('Audio not unlocked yet');
                 }
             });
 
             targetEntity.addEventListener("targetLost", event => {
-                console.log("Target Lost");
+                log('Target LOST');
                 if (isAudioUnlocked) {
                     video.pause();
+                    log('Video paused');
                 }
             });
         });
