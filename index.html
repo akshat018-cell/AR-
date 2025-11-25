@@ -73,14 +73,73 @@
 
         <!-- Image Target (Index 0) -->
         <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
-            <!-- Video Plane - Using material attribute for better control -->
-            <a-plane position="0 0 0" height="1.777" width="1" rotation="0 0 0"
-                material="src: #invitation-video; shader: flat; side: double;">
+            <!-- Video Plane with Chroma Key Shader -->
+            <a-plane id="video-plane" position="0 0 0" height="1.777" width="1" rotation="0 0 0"
+                material="shader: chromakey; src: #invitation-video; transparent: true; alphaTest: 0.5;">
             </a-plane>
         </a-entity>
     </a-scene>
 
     <script>
+        // Register Chroma Key Shader
+        AFRAME.registerShader('chromakey', {
+            schema: {
+                src: { type: 'map' },
+                keyColor: { type: 'color', default: '#00FF00', is: 'uniform' },
+                threshold: { type: 'number', default: 0.4, is: 'uniform' }
+            },
+
+            init: function (data) {
+                var videoTexture = new THREE.VideoTexture(data.src);
+                videoTexture.minFilter = THREE.LinearFilter;
+                videoTexture.magFilter = THREE.LinearFilter;
+                videoTexture.format = THREE.RGBFormat;
+
+                this.material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        src: { value: videoTexture },
+                        keyColor: { value: new THREE.Color(data.keyColor) },
+                        threshold: { value: data.threshold }
+                    },
+                    vertexShader: this.vertexShader,
+                    fragmentShader: this.fragmentShader,
+                    transparent: true,
+                    side: THREE.DoubleSide
+                });
+            },
+
+            update: function (data) {
+                this.material.uniforms.keyColor.value.set(data.keyColor);
+                this.material.uniforms.threshold.value = data.threshold;
+            },
+
+            vertexShader: [
+                'varying vec2 vUv;',
+                'void main() {',
+                '  vUv = uv;',
+                '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+                '}'
+            ].join('\n'),
+
+            fragmentShader: [
+                'uniform sampler2D src;',
+                'uniform vec3 keyColor;',
+                'uniform float threshold;',
+                'varying vec2 vUv;',
+                '',
+                'void main() {',
+                '  vec4 texColor = texture2D(src, vUv);',
+                '  float diff = length(texColor.rgb - keyColor);',
+                '  ',
+                '  if (diff < threshold) {',
+                '    discard;',
+                '  } else {',
+                '    gl_FragColor = texColor;',
+                '  }',
+                '}'
+            ].join('\n')
+        });
+
         document.addEventListener("DOMContentLoaded", function () {
             const overlay = document.getElementById('start-overlay');
             const video = document.getElementById('invitation-video');
@@ -92,7 +151,6 @@
             overlay.addEventListener('click', function () {
                 overlay.classList.add('hidden');
 
-                // Try to play video to unlock audio
                 video.play().then(() => {
                     video.pause();
                     video.currentTime = 0;
@@ -110,7 +168,6 @@
                 if (isAudioUnlocked) {
                     video.play().catch(err => console.error("Play error:", err));
                 } else {
-                    // If audio not unlocked, play muted
                     video.muted = true;
                     video.play().catch(err => console.error("Play error:", err));
                 }
