@@ -91,6 +91,17 @@
         .hidden {
             display: none !important;
         }
+
+        /* Hide the video element but keep it in DOM for A-Frame to access */
+        #invitation-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            opacity: 0;
+            z-index: -1;
+        }
     </style>
 </head>
 
@@ -101,28 +112,26 @@
         <p>Enable camera & audio access</p>
     </div>
 
+    <!-- 
+      Video Element (Moved OUT of a-assets to prevent blocking scene load)
+      - We place it here so the browser loads it asynchronously without stopping A-Frame.
+    -->
+    <video id="invitation-video" src="./video.mp4" preload="auto" loop="true" crossorigin="anonymous" playsinline
+        webkit-playsinline muted>
+    </video>
+
     <!-- AR Scene -->
     <!-- 
       mindar-image: imageTargetSrc points to the compiled target file.
-      color-space and renderer settings optimize for AR.
-      vr-mode-ui="enabled: false" hides the VR button.
-      device-orientation-permission-ui="enabled: false" hides default A-Frame permission UI.
+      uiLoading: no; -> We hide the default loading screen to prevent it from getting stuck visually,
+                        though moving the video out of a-assets is the real fix.
     -->
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta: 0.001;" color-space="sRGB"
-        renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false"
+    <a-scene mindar-image="imageTargetSrc: ./targets.mind; filterMinCF:0.0001; filterBeta: 0.001; uiLoading: no;"
+        color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights" vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false">
 
         <a-assets>
-            <!-- 
-          Video Asset 
-          - loop="true": Video loops automatically.
-          - crossorigin="anonymous": Good practice for video textures.
-          - playsinline, webkit-playsinline: Required for iOS inline playback.
-          - muted: Helps with initial loading policies (we unmute on interaction).
-        -->
-            <video id="invitation-video" src="./video.mp4" preload="auto" loop="true" crossorigin="anonymous"
-                playsinline webkit-playsinline muted>
-            </video>
+            <!-- Assets kept empty or for small items only -->
         </a-assets>
 
         <!-- Camera -->
@@ -130,16 +139,11 @@
 
         <!-- 
         Image Target (Index 0) 
-        - This matches the first image in your targets.mind file.
       -->
         <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
             <!-- 
           Video Plane with Chroma Key Shader
-          - material: Uses custom 'chromakey' shader.
-          - color: The key color (green: 0.1 0.9 0.2).
-          - transparent: true (Required for alpha transparency).
-          - side: double (Ensures visibility from both sides if needed).
-          - height: 1.777 (User specified aspect ratio).
+          - src: #invitation-video (Works even if video is in body)
         -->
             <a-plane
                 material="shader: chromakey; src: #invitation-video; color: 0.1 0.9 0.2; transparent: true; side: double;"
@@ -157,17 +161,13 @@
             let isAudioUnlocked = false;
 
             // --- iOS Audio Fix & Start Logic ---
-            // We wait for a user interaction (click/tap) to unlock the audio context.
             overlay.addEventListener('click', function () {
-                // 1. Hide the overlay
                 overlay.classList.add('hidden');
 
-                // 2. Unlock Audio: Play and immediately pause
-                // This tells the browser "the user interacted, allow this video to play with sound later"
                 video.play().then(() => {
                     video.pause();
-                    video.currentTime = 0; // Reset to start
-                    video.muted = false;   // Unmute now that we have interaction
+                    video.currentTime = 0;
+                    video.muted = false;
                     isAudioUnlocked = true;
                 }).catch((error) => {
                     console.warn("Video playback failed on start:", error);
@@ -175,7 +175,6 @@
             });
 
             // --- AR Logic: Target Found/Lost ---
-
             targetEntity.addEventListener("targetFound", event => {
                 console.log("Target Found");
                 if (isAudioUnlocked) {
